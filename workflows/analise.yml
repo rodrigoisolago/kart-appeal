@@ -7,7 +7,7 @@ on:
         description: "Penalidade recebida"
         required: true
       email:
-        description: "E-mail para resposta"
+        description: "E-mail para cópia"
         required: true
 
 jobs:
@@ -16,32 +16,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Instalar Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
+      - name: Instalar dependências
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils jq
 
       - name: Ler todos os PDFs
         id: pdfs
         run: |
-          sudo apt-get update && sudo apt-get install -y poppler-utils
           TEXT=""
           for pdf in regulamentos/*.pdf; do
             echo "Processando $pdf"
-            TEXT+=$'\n=== '"$(basename "$pdf")"' ===\n'
-            TEXT+=$(pdftotext "$pdf" -)
+            TEXT+="=== $(basename "$pdf") ==="$'\n'
+            TEXT+=$(pdftotext "$pdf" -)$'\n'
           done
           # escape para JSON
-          TEXT="${TEXT//'%'/'%25'}"
-          TEXT="${TEXT//$'\n'/'%0A'}"
-          TEXT="${TEXT//$'\r'/'%0D'}"
-          echo "text=$TEXT" >> $GITHUB_OUTPUT
+          TEXT_ESCAPED=$(jq -Rs . <<<"$TEXT")
+          echo "text=$TEXT_ESCAPED" >> $GITHUB_OUTPUT
 
       - name: Chamar Gemini
         id: gemini
         run: |
-          PROMPT=$(cat <<EOF
-          Você é um advogado especializado em karting.
+          PROMPT=$(jq -Rs . <<<"Você é um advogado especializado em karting.
           Baseie-se nos regulamentos abaixo:
           ${{ steps.pdfs.outputs.text }}
           Penalidade recebida:
@@ -49,16 +43,48 @@ jobs:
           1) Liste TODOS os artigos que permitem apelação.
           2) Liste TODOS os que podem ser usados contra.
           3) Dê uma probabilidade (0-100 %) de vitória.
-          4) Redija a apelação oficial em português.
-          EOF
-          )
+          4) Redija a apelação oficial em português.")
           RESPONSE=$(curl -s -X POST \
             "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${{ secrets.GEMINI_API_KEY }}" \
             -H "Content-Type: application/json" \
-            -d "$(jq -n --arg prompt "$PROMPT" '{contents:[{parts:[{text:$prompt}]}]}')")
-          echo "reply=$(echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text' | sed 's/%/%25/g' | sed 's/\n/%0A/g')" >> $GITHUB_OUTPUT
+            -d "{\"contents\":[{\"parts\":[{\"text\":$PROMPT}]}]}")
+          REPLY=$(echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text')
+          echo "reply<<EOF" >> $GITHUB_OUTPUT
+          echo "$REPLY" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Enviar e-mail
+      - name: Gerar resposta HTML
+        run: |
+          mkdir -p public
+          cat > public/resposta.html <<EOF
+          <!DOCTYPE html>
+          <html lang="pt">
+          <head>
+            <meta charset="UTF-8">
+            <title>KartAppeal – Resultado</title>
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <style>
+              body{font-family:Segoe UI,Roboto,Arial,sans-serif;margin:2rem;background:#f6f9ff;color:#222}
+              h1{color:#0057e6}
+              pre{white-space:pre-wrap;background:#fff;padding:1.5rem;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.1)}
+              a{display:inline-block;margin-top:1rem;background:#0057e6;color:#fff;padding:.75rem 1.5rem;border-radius:6px;text-decoration:none}
+            </style>
+          </head>
+          <body>
+            <h1>Análise de Apelação</h1>
+            <pre>${{ steps.gemini.outputs.reply }}</pre>
+            <a href="https://rodrigoisolago.github.io/kart-appeal/">← Nova análise</a>
+          </body>
+          </html>
+          EOF
+
+      - name: Deploy para GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./public
+
+      - name: Enviar e-mail (cópia)
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com
