@@ -29,7 +29,7 @@
   <img src="https://images.unsplash.com/photo-1622484446431-e4592de4a7ba?auto=format&fit=crop&w=1200&q=80" alt="Kart em pista" class="hero">
 
   <main>
-    <form action="https://script.google.com/macros/s/AKfycbxgzWIw3WnNTzUb-QNlPSeRp5RypFBnsZMXxH2_nqVxXn7WqWUtvgZHcUtyetus5Ilb/exec" method="post" target="_blank">
+    <form id="form" onsubmit="enviar(event)">
       <label for="penalidade">Descreva a penalidade recebida</label>
       <input type="text" id="penalidade" name="penalidade" placeholder="Ex.: 10 s por toque no kart #5" required>
 
@@ -43,5 +43,32 @@
   <footer>
     © 2025 KartAppeal – Utilização gratuita | IA via Gemini
   </footer>
+
+  <script>
+    async function enviar(e) {
+      e.preventDefault();
+      const btn = e.target.querySelector('button');
+      btn.disabled = true;
+      btn.textContent = 'Enviando...';
+      const penal = document.getElementById('penalidade').value;
+      const email = document.getElementById('email').value;
+      const token = 'GITHUB_TOKEN_AQUI'; // substitua pelo token gerado em Settings → Secrets → ACTIONS_RUNTIME_TOKEN
+      await fetch('https://api.github.com/repos/rodrigoisolago/kart-appeal/actions/workflows/analise.yml/dispatches', {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/vnd.github+json',
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          ref: 'main',
+          inputs: { penalidade: penal, email: email }
+        })
+      });
+      alert('Análise solicitada! Verifique seu e-mail em instantes.');
+      btn.disabled = false;
+      btn.textContent = 'Analisar → Receber e-mail';
+    }
+  </script>
 </body>
 </html>
