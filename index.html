@@ -6,53 +6,53 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
     :root{--cor:#0057e6;--fundo:#f6f9ff}
-    body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;background:var(--fundo);color:#222}
-    header{background:var(--cor);color:#fff;padding:4rem 1rem 3rem;text-align:center}
-    header h1{margin:0;font-size:2.4rem}
-    header p{margin:.5rem 0 0;opacity:.9}
-    .hero{width:100%;max-width:700px;margin:-2.5rem auto 2.5rem;display:block;border-radius:12px;box-shadow:0 8px 25px rgba(0,0,0,.15)}
+    body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial;margin:0;background:var(--fundo);color:#222}
+    header{background:var(--cor);color:#fff;padding:3rem 1rem;text-align:center}
+    .hero{width:100%;max-width:700px;margin:-2rem auto 2rem;display:block;border-radius:12px;box-shadow:0 8px 25px rgba(0,0,0,.15)}
     main{max-width:600px;margin:0 auto 3rem;padding:0 1rem}
     form{background:#fff;padding:2rem;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,.08)}
-    label{display:block;margin-bottom:.5rem;font-weight:600}
-    input[type=text],input[type=email]{width:100%;padding:.75rem;margin-bottom:1.25rem;border:1px solid #ccc;border-radius:6px;font-size:1rem}
-    button{background:var(--cor);color:#fff;border:none;padding:.9rem 1.5rem;font-size:1.1rem;border-radius:6px;cursor:pointer;width:100%;transition:background .3s}
-    button:hover{background:#0044bb}
-    footer{text-align:center;padding:2rem;font-size:.85rem;color:#555}
+    label,input{display:block;width:100%;margin-bottom:1rem}
+    input{padding:.75rem;border:1px solid #ccc;border-radius:6px;font-size:1rem}
+    button{background:var(--cor);color:#fff;border:none;padding:.9rem 1.5rem;font-size:1.1rem;border-radius:6px;cursor:pointer;width:100%}
+    button:disabled{opacity:.6}
+    #resposta{background:#fff;padding:1.5rem;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,.08);white-space:pre-wrap}
   </style>
 </head>
 <body>
   <header>
     <h1>KartAppeal</h1>
-    <p>Descreva a penalidade e receba em segundos a análise de apelação com base nos 22 regulamentos pré-carregados.</p>
+    <p>Descreva a penalidade e receba instantaneamente a análise com base nos 22 regulamentos.</p>
   </header>
-
-  <img src="https://images.unsplash.com/photo-1622484446431-e4592de4a7ba?auto=format&fit=crop&w=1200&q=80" alt="Kart em pista" class="hero">
+  <img src="https://images.unsplash.com/photo-1622484446431-e4592de4a7ba?auto=format&fit=crop&w=1200&q=80" alt="Kart" class="hero">
 
   <main>
     <form id="form" onsubmit="enviar(event)">
-      <label for="penalidade">Descreva a penalidade recebida</label>
-      <input type="text" id="penalidade" name="penalidade" placeholder="Ex.: 10 s por toque no kart #5" required>
-
-      <label for="email">Seu e-mail</label>
-      <input type="email" id="email" name="email" placeholder="seu@email.com" required>
-
-      <button type="submit">Analisar → Receber e-mail</button>
+      <label>Penalidade recebida
+        <input type="text" id="penalidade" placeholder="Ex.: 10 s por toque no kart #5" required>
+      </label>
+      <label>Seu e-mail (cópia opcional)
+        <input type="email" id="email" placeholder="seu@email.com">
+      </label>
+      <button type="submit">Analisar</button>
     </form>
+    <div id="resposta" style="display:none;"></div>
   </main>
-
-  <footer>
-    © 2025 KartAppeal – Utilização gratuita | IA via Gemini
-  </footer>
 
   <script>
     async function enviar(e) {
       e.preventDefault();
       const btn = e.target.querySelector('button');
+      const res = document.getElementById('resposta');
       btn.disabled = true;
-      btn.textContent = 'Enviando...';
-      const penal = document.getElementById('penalidade').value;
-      const email = document.getElementById('email').value;
-      const token = 'GITHUB_TOKEN_AQUI'; // substitua pelo token gerado em Settings → Secrets → ACTIONS_RUNTIME_TOKEN
+      btn.textContent = 'Analisando...';
+      res.style.display = 'block';
+      res.textContent = 'Aguarde...';
+
+      const pen = document.getElementById('penalidade').value;
+      const mail = document.getElementById('email').value || 'no-reply@example.com';
+
+      // 1. Dispara a Action
+      const token = '{{ secrets.GITHUB_TOKEN }}'; // substitua pelo valor real ou use proxy
       await fetch('https://api.github.com/repos/rodrigoisolago/kart-appeal/actions/workflows/analise.yml/dispatches', {
         method: 'POST',
         headers: {
@@ -60,14 +60,34 @@
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          ref: 'main',
-          inputs: { penalidade: penal, email: email }
-        })
+        body: JSON.stringify({ ref: 'main', inputs: { penalidade: pen, email: mail } })
       });
-      alert('Análise solicitada! Verifique seu e-mail em instantes.');
-      btn.disabled = false;
-      btn.textContent = 'Analisar → Receber e-mail';
+
+      // 2. Aguarda o JSON aparecer
+      const ts = new Date().toISOString().slice(0, 19).replace(/:/g, '-').slice(0, -3);
+      const jsonUrl = `https://raw.githubusercontent.com/rodrigoisolago/kart-appeal/main/resultados/${ts}.json`;
+      let tentativas = 0;
+      const max = 30;
+      const interval = setInterval(async () => {
+        try {
+          const r = await fetch(jsonUrl);
+          if (r.ok) {
+            const data = await r.json();
+            res.textContent = data.analise;
+            clearInterval(interval);
+            btn.disabled = false;
+            btn.textContent = 'Analisar';
+            return;
+          }
+        } catch {}
+        tentativas++;
+        if (tentativas >= max) {
+          clearInterval(interval);
+          res.textContent = 'Erro: tempo limite. Tente novamente.';
+          btn.disabled = false;
+          btn.textContent = 'Analisar';
+        }
+      }, 2000);
     }
   </script>
 </body>
