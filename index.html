@@ -52,7 +52,7 @@
       const mail = document.getElementById('email').value || 'no-reply@example.com';
 
       // 1. Dispara a Action
-      const token = '{{ secrets.GITHUB_TOKEN }}'; // substitua pelo valor real ou use proxy
+     const token = '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'; // substitua pelo valor real ou use proxy
       await fetch('https://api.github.com/repos/rodrigoisolago/kart-appeal/actions/workflows/analise.yml/dispatches', {
         method: 'POST',
         headers: {
