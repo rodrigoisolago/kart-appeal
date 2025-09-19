@@ -1,1 +1,71 @@
+name: Analisar Apelação
 
+on:
+  workflow_dispatch:
+    inputs:
+      penalidade:
+        description: "Penalidade recebida"
+        required: true
+      email:
+        description: "E-mail para resposta"
+        required: true
+
+jobs:
+  analise:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Ler todos os PDFs
+        id: pdfs
+        run: |
+          sudo apt-get update && sudo apt-get install -y poppler-utils
+          TEXT=""
+          for pdf in regulamentos/*.pdf; do
+            echo "Processando $pdf"
+            TEXT+=$'\n=== '"$(basename "$pdf")"' ===\n'
+            TEXT+=$(pdftotext "$pdf" -)
+          done
+          # escape para JSON
+          TEXT="${TEXT//'%'/'%25'}"
+          TEXT="${TEXT//$'\n'/'%0A'}"
+          TEXT="${TEXT//$'\r'/'%0D'}"
+          echo "text=$TEXT" >> $GITHUB_OUTPUT
+
+      - name: Chamar Gemini
+        id: gemini
+        run: |
+          PROMPT=$(cat <<EOF
+          Você é um advogado especializado em karting.
+          Baseie-se nos regulamentos abaixo:
+          ${{ steps.pdfs.outputs.text }}
+          Penalidade recebida:
+          ${{ github.event.inputs.penalidade }}
+          1) Liste TODOS os artigos que permitem apelação.
+          2) Liste TODOS os que podem ser usados contra.
+          3) Dê uma probabilidade (0-100 %) de vitória.
+          4) Redija a apelação oficial em português.
+          EOF
+          )
+          RESPONSE=$(curl -s -X POST \
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${{ secrets.GEMINI_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n --arg prompt "$PROMPT" '{contents:[{parts:[{text:$prompt}]}]}')")
+          echo "reply=$(echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text' | sed 's/%/%25/g' | sed 's/\n/%0A/g')" >> $GITHUB_OUTPUT
+
+      - name: Enviar e-mail
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.MAIL_USER }}
+          password: ${{ secrets.MAIL_PASS }}
+          subject: "Análise de apelação – KartAppeal"
+          to: ${{ github.event.inputs.email }}
+          from: KartAppeal <${{ secrets.MAIL_USER }}>
+          html_body: ${{ steps.gemini.outputs.reply }}
